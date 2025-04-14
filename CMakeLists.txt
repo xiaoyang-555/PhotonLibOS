@@ -33,6 +33,7 @@ option(PHOTON_ENABLE_ECOSYSTEM "enable ecosystem" OFF)
 option(PHOTON_ENABLE_LIBCURL "enable libcurl" ON)
 option(PHOTON_ENABLE_AIO "enable aio" ON)
 set(PHOTON_DEFAULT_LOG_LEVEL "0" CACHE STRING "default log level")
+option(PHOTON_BUILD_OCF_CACHE "enable ocf cache" OFF)
 
 option(PHOTON_BUILD_DEPENDENCIES "" OFF)
 set(PHOTON_AIO_SOURCE "https://pagure.io/libaio/archive/libaio-0.3.113/libaio-0.3.113.tar.gz" CACHE STRING "")
@@ -65,6 +66,8 @@ if (${CMAKE_CXX_COMPILER_ID} STREQUAL GNU AND CMAKE_CXX_COMPILER_VERSION VERSION
     # Hint: -faligned-new is enabled by default after -std=c++17
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -faligned-new")
 endif ()
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${global_compile_options}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${global_compile_options}")
 
 if (PHOTON_BUILD_WITH_ASAN)
     if ((NOT CMAKE_BUILD_TYPE STREQUAL "Debug") OR (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"))
@@ -211,7 +214,12 @@ file(GLOB PHOTON_SRC RELATIVE "${PROJECT_SOURCE_DIR}"
 if (APPLE)
     list(APPEND PHOTON_SRC io/kqueue.cpp)
 else ()
-    list(APPEND PHOTON_SRC io/epoll.cpp io/epoll-ng.cpp)
+    file(GLOB CACHE_SRC 
+        cache/*.cpp
+        cache/full_file_cache/*.cpp 
+        cache/persistent_cache/*.cpp
+    )
+    list(APPEND PHOTON_SRC io/epoll.cpp io/epoll-ng.cpp ${CACHE_SRC})
     if (PHOTON_ENABLE_AIO)
         list(APPEND PHOTON_SRC io/aio-wrapper.cpp)
     endif ()
@@ -239,6 +247,9 @@ endif ()
 if (NOT ${PHOTON_ENABLE_LIBCURL})
     list(REMOVE_ITEM PHOTON_SRC net/curl.cpp fs/httpfs/httpfs.cpp)
 endif ()
+if (PHOTON_BUILD_OCF_CACHE)
+    add_subdirectory(cache/ocf_cache)
+endif()
 
 
 # An object library compiles source files but does not archive or link their object files.
@@ -318,6 +329,11 @@ endif ()
 if (PHOTON_ENABLE_LIBCURL)
     list(APPEND static_deps ${CURL_LIBRARIES})
 endif ()
+if (PHOTON_BUILD_OCF_CACHE)
+    list(APPEND shared_deps ocf_cache_lib)
+    list(APPEND static_deps ocf_cache_lib)
+endif()
+
 
 # Find out dynamic libs and append to `shared_deps`.
 # Because if not built from source, we won't know the local packages are static or shared.
@@ -414,6 +430,9 @@ if (PHOTON_BUILD_TESTING)
     add_subdirectory(rpc/test)
     add_subdirectory(thread/test)
     add_subdirectory(net/security-context/test)
+    if (NOT APPLE)
+        add_subdirectory(cache/test)
+    endif()
     if (PHOTON_ENABLE_ECOSYSTEM)
         add_subdirectory(ecosystem/test)
     endif ()
